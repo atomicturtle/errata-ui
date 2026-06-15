@@ -30,6 +30,14 @@ export interface V2RPMs {
   nvras: string[];
 }
 
+export interface V2Source {
+  name: string;
+  url: string;
+  vendor: string;
+  license: string;
+  licenseUrl: string;
+}
+
 export interface V2Advisory {
   id?: number;
   publishedAt?: string;
@@ -48,6 +56,7 @@ export interface V2Advisory {
   rpms?: Record<string, V2RPMs>;
   rebootSuggested?: boolean;
   buildReferences?: string[];
+  source?: V2Source | null;
 }
 
 export interface V2AdvisoryListResponse {
