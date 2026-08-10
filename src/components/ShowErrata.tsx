@@ -125,6 +125,29 @@ export const ShowErrata = () => {
                   </Text>
                 </HStack>
                 <Text fontSize="sm">{errata.synopsis}</Text>
+                {errata.source && (
+                  <Text fontSize="xs" mt={1} color="gray.500">
+                    Source:{" "}
+                    <Link
+                      href={errata.source.url}
+                      isExternal
+                      color={linkBlue}
+                      _visited={{ color: linkPurple }}
+                    >
+                      {errata.source.vendor} {errata.source.name}
+                    </Link>
+                    , used under{" "}
+                    <Link
+                      href={errata.source.licenseUrl}
+                      isExternal
+                      color={linkBlue}
+                      _visited={{ color: linkPurple }}
+                    >
+                      {errata.source.license}
+                    </Link>
+                    , with modifications.
+                  </Text>
+                )}
               </VStack>
             </HStack>
             <Tabs backgroundColor={cardBg} p="2">

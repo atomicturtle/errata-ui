@@ -110,6 +110,17 @@ export const Root = () => {
           </Box>
           <span>RSS</span>
         </ChakraLink>
+        <Text fontSize="xs" my="auto" ml="auto" textAlign="right">
+          Advisory content derived from Red Hat, used under{" "}
+          <ChakraLink
+            href="https://creativecommons.org/licenses/by/4.0/"
+            isExternal
+            textDecoration="underline"
+          >
+            CC BY 4.0
+          </ChakraLink>
+          , with modifications.
+        </Text>
       </Box>
     </Box>
   );
