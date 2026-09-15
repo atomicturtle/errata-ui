@@ -2,6 +2,7 @@ import type {
   V2AdvisoryDetailResponse,
   V2AdvisoryListResponse,
 } from "./types";
+import type { NvdCveListResponse } from "../lib/nvd";
 
 const BASE_PATH = "/api";
 
@@ -62,4 +63,17 @@ export function getAdvisory(id: string): Promise<V2AdvisoryDetailResponse> {
 
 export function getRSSUrl(): string {
   return `${BASE_PATH}/v2/advisories:rss`;
+}
+
+/** Batch-fetch NVD enrichment for CVE IDs already synced into Apollo. */
+export function getNvdCves(ids: string[]): Promise<NvdCveListResponse> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (!unique.length) {
+    return Promise.resolve({ items: [], missing: [] });
+  }
+  const params = new URLSearchParams();
+  params.set("ids", unique.join(","));
+  return apiFetch<NvdCveListResponse>(
+    `${BASE_PATH}/v3/nvd/cves?${params.toString()}`
+  );
 }
