@@ -38,6 +38,7 @@ import {
   pickPrimaryNvd,
   severityColor,
 } from "../lib/nvd";
+import { safeHttpUrl } from "../lib/safeHttpUrl";
 import { reqap } from "../lib/reqap";
 import { COLOR_RESF_GREEN } from "../styles";
 import { typeToText } from "./enumToText";
@@ -289,7 +290,7 @@ export const ShowErrata = () => {
                     <Text fontSize="xs" mt={2} color="gray.500">
                       Source:{" "}
                       <Link
-                        href={errata.source.url}
+                        href={safeHttpUrl(errata.source.url)}
                         isExternal
                         color={linkBlue}
                         _visited={{ color: linkPurple }}
@@ -298,7 +299,7 @@ export const ShowErrata = () => {
                       </Link>
                       , used under{" "}
                       <Link
-                        href={errata.source.licenseUrl}
+                        href={safeHttpUrl(errata.source.licenseUrl)}
                         isExternal
                         color={linkBlue}
                         _visited={{ color: linkPurple }}
@@ -371,7 +372,7 @@ export const ShowErrata = () => {
                               {errata.fixes?.map((x, idx) => (
                                 <ListItem key={idx}>
                                   <Link
-                                    href={x.sourceLink}
+                                    href={safeHttpUrl(x.sourceLink)}
                                     isExternal
                                     color={linkBlue}
                                     _visited={{ color: linkPurple }}
@@ -409,10 +410,10 @@ export const ShowErrata = () => {
                                   <Box key={idx}>
                                     <HStack justify="space-between" spacing={2}>
                                       <Link
-                                        href={
+                                        href={safeHttpUrl(
                                           cve.sourceLink ||
-                                          nvdDetailUrl(cve.name)
-                                        }
+                                            nvdDetailUrl(cve.name)
+                                        )}
                                         isExternal
                                         color={linkBlue}
                                         fontSize="sm"
@@ -495,7 +496,9 @@ export const ShowErrata = () => {
                             >
                               <HStack justify="space-between" mb={2} flexWrap="wrap" gap={2}>
                                 <Link
-                                  href={cve.sourceLink || nvdDetailUrl(cve.name)}
+                                  href={safeHttpUrl(
+                                    cve.sourceLink || nvdDetailUrl(cve.name)
+                                  )}
                                   isExternal
                                   color={linkBlue}
                                   fontWeight="bold"
@@ -606,7 +609,7 @@ export const ShowErrata = () => {
                         {errata.fixes?.map((x, idx) => (
                           <ListItem key={idx}>
                             <Link
-                              href={x.sourceLink}
+                              href={safeHttpUrl(x.sourceLink)}
                               isExternal
                               color={linkBlue}
                               _visited={{ color: linkPurple }}
@@ -675,7 +678,7 @@ export const ShowErrata = () => {
                       {errata.source && (
                         <SideRow label="Erratum ID (Upstream)">
                           <Link
-                            href={errata.source.url}
+                            href={safeHttpUrl(errata.source.url)}
                             isExternal
                             color={linkBlue}
                             _visited={{ color: linkPurple }}
@@ -715,16 +718,16 @@ export const ShowErrata = () => {
                             done={!!errata.publishedAt}
                           />
                         )}
-                        <TimelineItem
-                          label="Rocky Erratum Issued"
-                          date={errata.publishedAt}
-                          done={!!errata.publishedAt}
-                        />
-                        <TimelineItem
-                          label="Rocky Erratum Published"
-                          date={errata.rockyPublishedAt}
-                          done={!!errata.rockyPublishedAt}
-                        />
+                        {errata.rockyPublishedAt &&
+                          (!errata.publishedAt ||
+                            new Date(errata.rockyPublishedAt).getTime() >=
+                              new Date(errata.publishedAt).getTime()) && (
+                            <TimelineItem
+                              label="Rocky Erratum Published"
+                              date={errata.rockyPublishedAt}
+                              done={!!errata.rockyPublishedAt}
+                            />
+                          )}
                       </VStack>
                     </Box>
                   )}
