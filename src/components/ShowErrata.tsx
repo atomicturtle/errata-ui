@@ -115,16 +115,21 @@ function isSourceRpm(nevra: string): boolean {
   return nevra.includes(".src.rpm") || nevra.endsWith(".src");
 }
 
+/** Matches kernel-debuginfo-common-x86_64 and foo-debugsource, not kernel-debug. */
+const DEBUG_PACKAGE_RE = /-debug(info|source)(-|$)/;
+
+/** One spec per package name and EVR: dnf picks the arch, so per-arch NVRAs collapse. */
 function updateCommand(nvras: string[]): string | null {
-  const specs: string[] = [];
+  const specs = new Set<string>();
   for (const nvra of nvras) {
     if (isSourceRpm(nvra)) continue;
     const parsed = splitNevra(nvra);
     if (!parsed || !/^[A-Za-z0-9._+-]+$/.test(parsed.name)) continue;
-    specs.push(`${parsed.name}-${parsed.epoch}:${parsed.version}-${parsed.release}`);
+    if (DEBUG_PACKAGE_RE.test(parsed.name)) continue;
+    specs.add(`${parsed.name}-${parsed.epoch}:${parsed.version}-${parsed.release}`);
   }
-  if (!specs.length || specs.length > 8) return null;
-  return `dnf update ${specs.join(" ")}`;
+  if (!specs.size || specs.size > 8) return null;
+  return `dnf update ${[...specs].join(" ")}`;
 }
 
 function referenceLabel(ticket: string, sourceLink: string, sourceBy: string): string {
