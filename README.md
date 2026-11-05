@@ -72,3 +72,13 @@ Production values override: `deploy/helm/values-production.yaml`
 - **Production server:** nginx (static files + reverse proxy)
 - **API:** Proxies to [apollo-server](https://github.com/resf/distro-tools/tree/main/apollo/server) V2 compatibility API
 - **CI:** GitHub Actions builds and pushes to `ghcr.io/rocky-linux/errata-frontend`
+
+## Public tracker
+
+`/` is the advisory index: search, filters, and the newest Rocky Linux errata. The header sections are:
+
+- **Advisories** (`/`, `/:id`) — the advisory list and permalink. `/advisories` redirects to `/`. `/fixes` remains the tracker advisory catalog
+- **CVEs** (`/cves`, `/cves/CVE-…`) — searchable Rocky CVE rows and one CVE’s release status, description, and fixing advisories
+- **Data Feeds / API** (`/feeds`) — CSV, JSON, RSS, CSAF, OVAL, and the read-only MCP setup. `/about` redirects home
+
+`/packages` remains the source-package catalog (latest advisory-derived source version, advisory counts, EOL). It is not in the primary navigation. `/technologies` redirects there. An advisory search stays on the advisory list and also matches a CVE or package name; links on that row open the same query in CVEs or Packages. Filters live in the URL. The read-only tracker MCP is `POST https://errata.research.atomicorp.com/mcp` (100 requests per minute per IP).

@@ -28,6 +28,7 @@ export interface V2CVE {
 
 export interface V2RPMs {
   nvras: string[];
+  repositories?: string[];
 }
 
 export interface V2Source {

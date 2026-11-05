@@ -9,6 +9,7 @@ import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbLink,
+  Code,
   Heading,
   HStack,
   Link,
@@ -63,13 +64,9 @@ function formatDate(raw?: string | null): string {
 
 function primaryPackageName(errata: V2Advisory): string | null {
   for (const product of Object.keys(errata.rpms ?? {})) {
-    const src = errata.rpms?.[product]?.nvras?.find((x) =>
-      x.includes(".src.rpm")
-    );
+    const src = errata.rpms?.[product]?.nvras?.find((x) => isSourceRpm(x));
     if (!src) continue;
-    const base = src.replace(/\.src\.rpm$/, "");
-    const m = base.match(/^(.+)-[^-]+-[^-]+$/);
-    return m?.[1] ?? base;
+    return splitNevra(src)?.name ?? null;
   }
   return null;
 }
@@ -92,6 +89,52 @@ function packageCount(errata: V2Advisory): number {
     n += errata.rpms?.[product]?.nvras?.length ?? 0;
   }
   return n;
+}
+
+const NEVRA_RE = /^(.+)-(\d+):([^-]+)-([^-]+)\.([^.]+)\.rpm$/;
+
+function splitNevra(nevra: string): {
+  name: string;
+  epoch: string;
+  version: string;
+  release: string;
+  arch: string;
+} | null {
+  const match = NEVRA_RE.exec(nevra);
+  if (!match) return null;
+  return {
+    name: match[1],
+    epoch: match[2],
+    version: match[3],
+    release: match[4],
+    arch: match[5],
+  };
+}
+
+function isSourceRpm(nevra: string): boolean {
+  return nevra.includes(".src.rpm") || nevra.endsWith(".src");
+}
+
+function updateCommand(nvras: string[]): string | null {
+  const specs: string[] = [];
+  for (const nvra of nvras) {
+    if (isSourceRpm(nvra)) continue;
+    const parsed = splitNevra(nvra);
+    if (!parsed || !/^[A-Za-z0-9._+-]+$/.test(parsed.name)) continue;
+    specs.push(`${parsed.name}-${parsed.epoch}:${parsed.version}-${parsed.release}`);
+  }
+  if (!specs.length || specs.length > 8) return null;
+  return `dnf update ${specs.join(" ")}`;
+}
+
+function referenceLabel(ticket: string, sourceLink: string, sourceBy: string): string {
+  if (sourceLink.includes("bugzilla.redhat.com/")) {
+    return `Red Hat Bugzilla #${ticket}`;
+  }
+  if (sourceLink.includes("issues.redhat.com/")) {
+    return `Red Hat issue ${ticket}`;
+  }
+  return [sourceBy, ticket].filter(Boolean).join(" ");
 }
 
 function SideRow({
@@ -176,6 +219,12 @@ export const ShowErrata = () => {
   const refCount = errata?.references?.length ?? 0;
   const cveCount = errata?.cves?.length ?? 0;
   const fixCount = errata?.fixes?.length ?? 0;
+  const hasReferences = refCount > 0 || fixCount > 0 || Boolean(errata?.source);
+  const referenceTotal = refCount + fixCount + (errata?.source ? 1 : 0);
+  const showTechnical =
+    cveNames.length > 0 ||
+    Boolean(errata?.rebootSuggested) ||
+    Boolean(errata?.restartSuggested);
 
   const earliestCvePublished = useMemo(() => {
     const dates = nvdItems
@@ -194,6 +243,8 @@ export const ShowErrata = () => {
   }, [nvdItems]);
 
   useEffect(() => {
+    if (id) document.title = id;
+    setTabIndex(0);
     if (!id) return;
     const fetchData = async () => {
       setIsLoading(true);
@@ -224,7 +275,7 @@ export const ShowErrata = () => {
       <Breadcrumb mb={4}>
         <BreadcrumbItem>
           <BreadcrumbLink as={RouterLink} to="/">
-            Product Errata
+            Rocky Linux Errata
           </BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbItem>
@@ -266,24 +317,22 @@ export const ShowErrata = () => {
                     {errata.synopsis}
                   </Text>
                   <HStack mt={2} spacing={2} flexWrap="wrap">
-                    <Badge
-                      colorScheme={
-                        errata.type === "TYPE_SECURITY"
-                          ? "red"
-                          : errata.type === "TYPE_BUGFIX"
-                            ? "green"
-                            : "blue"
-                      }
-                    >
-                      {errata.type === "TYPE_SECURITY"
-                        ? "SECURITY UPDATE"
-                        : typeToText(errata.type).toUpperCase()}
-                    </Badge>
-                    {errata.type === "TYPE_SECURITY" && fixCount > 0 && (
-                      <Badge colorScheme="green">BUG FIX</Badge>
+                    {errata.type === "TYPE_SECURITY" && (
+                      <Badge colorScheme="red">SECURITY UPDATE</Badge>
+                    )}
+                    {errata.type !== "TYPE_SECURITY" && (
+                      <Badge
+                        colorScheme={errata.type === "TYPE_BUGFIX" ? "green" : "blue"}
+                      >
+                        {typeToText(errata.type).toUpperCase()}
+                      </Badge>
                     )}
                     <Text fontSize="xs" color="gray.500">
-                      Issued {formatDate(errata.publishedAt)}
+                      {errata.source ? "Upstream advisory published" : "Published"}{" "}
+                      {formatDate(errata.publishedAt)}
+                      {errata.rockyPublishedAt
+                        ? ` · Rocky Linux advisory published ${formatDate(errata.rockyPublishedAt)}`
+                        : ""}
                     </Text>
                   </HStack>
                   {errata.source && (
@@ -314,6 +363,12 @@ export const ShowErrata = () => {
 
               {cveNames.length > 0 && (
                 <Box mt={4} pt={4} borderTopWidth="1px" borderColor={borderColor}>
+                  {primary && cveNames.length > 1 && (
+                    <Text fontSize="xs" color={muted} mb={2}>
+                      NVD scores for {primary.cve_id}. Other CVEs on this advisory are listed
+                      under Vulnerabilities.
+                    </Text>
+                  )}
                   <ErrataMetricsStrip primary={primary} />
                 </Box>
               )}
@@ -328,10 +383,9 @@ export const ShowErrata = () => {
               <TabList flexWrap="wrap">
                 <Tab>Overview</Tab>
                 {cveCount > 0 && <Tab>Vulnerabilities ({cveCount})</Tab>}
-                {pkgCount > 0 && <Tab>Affected Packages ({pkgCount})</Tab>}
-                {refCount > 0 && <Tab>References ({refCount})</Tab>}
-                {cveNames.length > 0 && <Tab>CVSS Details</Tab>}
-                {fixCount > 0 && <Tab>Fixes ({fixCount})</Tab>}
+                <Tab>Packages & Fixes{pkgCount > 0 ? ` (${pkgCount})` : ""}</Tab>
+                {hasReferences && <Tab>References ({referenceTotal})</Tab>}
+                {showTechnical && <Tab>Technical Details</Tab>}
               </TabList>
 
               <Box
@@ -363,28 +417,6 @@ export const ShowErrata = () => {
                             {p}
                           </Text>
                         ))}
-                        {fixCount > 0 && (
-                          <>
-                            <Heading as="h2" size="md" mt={4}>
-                              Bug Fix(es) and Enhancement(s)
-                            </Heading>
-                            <UnorderedList pl={4} mt={2} spacing={1}>
-                              {errata.fixes?.map((x, idx) => (
-                                <ListItem key={idx}>
-                                  <Link
-                                    href={safeHttpUrl(x.sourceLink)}
-                                    isExternal
-                                    color={linkBlue}
-                                    _visited={{ color: linkPurple }}
-                                  >
-                                    {x.sourceBy} - {x.ticket}
-                                  </Link>
-                                  {x.description ? ` ${x.description}` : ""}
-                                </ListItem>
-                              ))}
-                            </UnorderedList>
-                          </>
-                        )}
                       </Box>
 
                       <VStack align="stretch" spacing={4}>
@@ -459,15 +491,6 @@ export const ShowErrata = () => {
                         </Box>
                       </VStack>
                     </SimpleGrid>
-
-                    {cveNames.length > 0 && (
-                      <VulnerabilityDetails
-                        cveNames={cveNames}
-                        items={nvdItems}
-                        loading={nvdLoading}
-                        failed={nvdFailed}
-                      />
-                    )}
                   </TabPanel>
 
                   {/* Vulnerabilities */}
@@ -538,88 +561,248 @@ export const ShowErrata = () => {
                     </TabPanel>
                   )}
 
-                  {/* Packages */}
-                  {pkgCount > 0 && (
+                  {/* Packages & Fixes */}
+                  <TabPanel px={{ base: 2, md: 4 }}>
+                    <Heading as="h2" size="md" mb={2}>
+                      Packages & Fixes
+                    </Heading>
+                    <Text fontSize="sm" color={muted} mb={4}>
+                      These are the RPM builds stored on the advisory. The
+                      advisory publication time is not an RPM availability time.
+                    </Text>
+                    {pkgCount === 0 ? (
+                      <Text>
+                        Fixed version unavailable. This advisory record does
+                        not include an RPM build.
+                      </Text>
+                    ) : (
+                      <VStack align="stretch" spacing={6}>
+                        {Object.keys(errata.rpms ?? {}).map((product) => {
+                          const nvras = errata.rpms?.[product]?.nvras ?? [];
+                          const sources = nvras.filter((x) => isSourceRpm(x));
+                          const binaries = nvras.filter((x) => !isSourceRpm(x));
+                          const repos = errata.rpms?.[product]?.repositories ?? [];
+                          const command = updateCommand(nvras);
+                          return (
+                            <Box
+                              key={product}
+                              borderWidth="1px"
+                              borderColor={borderColor}
+                              borderRadius="md"
+                              p={4}
+                            >
+                              <Text fontSize="xs" color={muted} textTransform="uppercase">
+                                Affected release
+                              </Text>
+                              <Heading as="h3" size="sm" mb={3}>
+                                {product}
+                              </Heading>
+                              <Text fontSize="xs" color={muted} textTransform="uppercase">
+                                Source package
+                              </Text>
+                              {sources.length > 0 ? (
+                                sources.map((x) => (
+                                  <Text key={x} fontFamily="mono" fontSize="sm" mb={2}>
+                                    {x}
+                                  </Text>
+                                ))
+                              ) : (
+                                <Text fontSize="sm" mb={2}>
+                                  Source package not recorded.
+                                </Text>
+                              )}
+                              <Text fontSize="xs" color={muted} textTransform="uppercase" mt={2}>
+                                Updated binary RPMs
+                              </Text>
+                              {binaries.length > 0 ? (
+                                <Box maxH="420px" overflowY="auto" mb={3}>
+                                  {binaries.map((x) => (
+                                    <Text key={x} fontFamily="mono" fontSize="sm">
+                                      {x}
+                                    </Text>
+                                  ))}
+                                </Box>
+                              ) : (
+                                <Text fontSize="sm" mb={3}>
+                                  Fixed version unavailable. No binary RPM is
+                                  recorded for this release.
+                                </Text>
+                              )}
+                              <Text fontSize="xs" color={muted} textTransform="uppercase">
+                                Repository
+                              </Text>
+                              <Text fontSize="sm" mb={3}>
+                                {repos.length > 0
+                                  ? repos.join(", ")
+                                  : "Repository not recorded for these packages."}
+                              </Text>
+                              {(errata.cves?.length ?? 0) > 0 && (
+                                <>
+                                  <Text fontSize="xs" color={muted} textTransform="uppercase">
+                                    Associated CVEs
+                                  </Text>
+                                  <UnorderedList pl={4} mb={3} spacing={1}>
+                                    {errata.cves?.map((cve) => (
+                                      <ListItem key={cve.name} fontSize="sm">
+                                        <Link
+                                          as={RouterLink}
+                                          to={`/cves/${encodeURIComponent(cve.name)}`}
+                                          color={linkBlue}
+                                        >
+                                          {cve.name}
+                                        </Link>
+                                        {cve.sourceLink ? (
+                                          <>
+                                            {" "}
+                                            <Link
+                                              href={safeHttpUrl(cve.sourceLink)}
+                                              isExternal
+                                              color={linkBlue}
+                                              fontSize="xs"
+                                            >
+                                              (upstream)
+                                            </Link>
+                                          </>
+                                        ) : null}
+                                      </ListItem>
+                                    ))}
+                                  </UnorderedList>
+                                </>
+                              )}
+                              <Text fontSize="xs" color={muted} textTransform="uppercase">
+                                Remediation
+                              </Text>
+                              {errata.solution ? (
+                                <Text fontSize="sm" mb={2}>
+                                  {errata.solution}
+                                </Text>
+                              ) : null}
+                              {command ? (
+                                <>
+                                  <Code display="block" p={2} fontSize="sm" mb={2}>
+                                    {command}
+                                  </Code>
+                                  <Text fontSize="xs" color={muted}>
+                                    The command names the binary builds stored
+                                    on this advisory. It does not confirm that
+                                    a repository currently serves them.
+                                  </Text>
+                                </>
+                              ) : binaries.length > 0 ? (
+                                <Text fontSize="sm">
+                                  Install the binary RPMs listed above. Each
+                                  line is the exact NEVRA stored on this
+                                  advisory.
+                                </Text>
+                              ) : null}
+                            </Box>
+                          );
+                        })}
+                      </VStack>
+                    )}
+                  </TabPanel>
+
+                  {hasReferences && (
                     <TabPanel px={{ base: 2, md: 4 }}>
-                      <VStack alignItems="flex-start" spacing="6">
-                        {Object.keys(errata.rpms ?? {}).map((product) => (
-                          <div key={product}>
-                            <Heading as="h2" size="lg" mb={4} fontWeight="300">
-                              {product}
-                            </Heading>
-                            <Heading as="h3" size="md" mt={2}>
-                              SRPMs
-                            </Heading>
-                            <UnorderedList pl="4">
-                              {errata.rpms?.[product]?.nvras
-                                ?.filter((x) => x.includes(".src.rpm"))
-                                .map((x) => (
-                                  <ListItem key={x}>{x}</ListItem>
-                                ))}
+                      <Heading as="h2" size="md" mb={4}>
+                        References
+                      </Heading>
+                      <VStack align="stretch" spacing={5}>
+                        {errata.source && (
+                          <Box>
+                            <Text fontSize="xs" color={muted} textTransform="uppercase">
+                              Upstream advisory
+                            </Text>
+                            <Link
+                              href={safeHttpUrl(errata.source.url)}
+                              isExternal
+                              color={linkBlue}
+                              fontWeight="semibold"
+                            >
+                              {errata.source.vendor} {errata.source.name}
+                            </Link>
+                          </Box>
+                        )}
+                        {fixCount > 0 && (
+                          <Box>
+                            <Text fontSize="xs" color={muted} textTransform="uppercase" mb={1}>
+                              Upstream issue references
+                            </Text>
+                            <Text fontSize="sm" color={muted} mb={2}>
+                              These identify upstream bugs. They are not RPM
+                              builds.
+                            </Text>
+                            <UnorderedList pl={4} spacing={1}>
+                              {errata.fixes?.map((fix, idx) => (
+                                <ListItem key={`${fix.ticket}-${idx}`}>
+                                  {fix.sourceLink ? (
+                                    <Link
+                                      href={safeHttpUrl(fix.sourceLink)}
+                                      isExternal
+                                      color={linkBlue}
+                                    >
+                                      {referenceLabel(
+                                        fix.ticket,
+                                        fix.sourceLink,
+                                        fix.sourceBy
+                                      )}
+                                    </Link>
+                                  ) : (
+                                    referenceLabel(fix.ticket, "", fix.sourceBy)
+                                  )}
+                                  {fix.description ? ` — ${fix.description}` : ""}
+                                </ListItem>
+                              ))}
                             </UnorderedList>
-                            <Heading as="h3" size="md" mt={2}>
-                              RPMs
-                            </Heading>
-                            <UnorderedList pl="4">
-                              {errata.rpms?.[product]?.nvras
-                                ?.filter((x) => !x.includes(".src.rpm"))
-                                .map((x) => (
-                                  <ListItem key={x}>{x}</ListItem>
-                                ))}
+                          </Box>
+                        )}
+                        {refCount > 0 && (
+                          <Box>
+                            <Text fontSize="xs" color={muted} textTransform="uppercase" mb={1}>
+                              Other references
+                            </Text>
+                            <UnorderedList pl={4} spacing={1}>
+                              {errata.references?.map((x, idx) => (
+                                <ListItem key={idx}>{x}</ListItem>
+                              ))}
                             </UnorderedList>
-                          </div>
-                        ))}
+                          </Box>
+                        )}
                       </VStack>
                     </TabPanel>
                   )}
 
-                  {/* References */}
-                  {refCount > 0 && (
+                  {showTechnical && (
                     <TabPanel px={{ base: 2, md: 4 }}>
-                      <Heading as="h2" size="md" mb={3}>
-                        References ({refCount})
+                      <Heading as="h2" size="md" mb={4}>
+                        Technical Details
                       </Heading>
-                      <UnorderedList pl={4} spacing={1}>
-                        {errata.references?.map((x, idx) => (
-                          <ListItem key={idx}>{x}</ListItem>
-                        ))}
-                      </UnorderedList>
-                    </TabPanel>
-                  )}
-
-                  {/* CVSS Details */}
-                  {cveNames.length > 0 && (
-                    <TabPanel px={{ base: 2, md: 4 }}>
-                      <VulnerabilityDetails
-                        cveNames={cveNames}
-                        items={nvdItems}
-                        loading={nvdLoading}
-                        failed={nvdFailed}
-                      />
-                    </TabPanel>
-                  )}
-
-                  {/* Fixes */}
-                  {fixCount > 0 && (
-                    <TabPanel px={{ base: 2, md: 4 }}>
-                      <Heading as="h2" size="md" mb={3}>
-                        Fixes ({fixCount})
-                      </Heading>
-                      <UnorderedList pl={4} spacing={1}>
-                        {errata.fixes?.map((x, idx) => (
-                          <ListItem key={idx}>
-                            <Link
-                              href={safeHttpUrl(x.sourceLink)}
-                              isExternal
-                              color={linkBlue}
-                              _visited={{ color: linkPurple }}
-                            >
-                              {x.sourceBy} - {x.ticket}
-                            </Link>
-                            {x.description ? ` — ${x.description}` : ""}
-                          </ListItem>
-                        ))}
-                      </UnorderedList>
+                      {cveNames.length > 0 && (
+                        <VulnerabilityDetails
+                          cveNames={cveNames}
+                          items={nvdItems}
+                          loading={nvdLoading}
+                          failed={nvdFailed}
+                        />
+                      )}
+                      <VStack align="stretch" spacing={2} mt={4} fontSize="sm">
+                        <Text>
+                          Reboot suggested: {errata.rebootSuggested ? "yes" : "no"}
+                        </Text>
+                        <Text>
+                          Restart suggested: {errata.restartSuggested ? "yes" : "no"}
+                        </Text>
+                        {cveNames.length > 0 && (
+                          <Text>
+                            CISA KEV:{" "}
+                            {nvdLoading
+                              ? "…"
+                              : kevListed
+                                ? "listed"
+                                : "not listed"}
+                          </Text>
+                        )}
+                      </VStack>
                     </TabPanel>
                   )}
                 </TabPanels>
@@ -671,12 +854,8 @@ export const ShowErrata = () => {
                           <Text fontSize="xs">{arches.join(", ")}</Text>
                         </SideRow>
                       )}
-                      <SideRow label="References">{refCount || "None"}</SideRow>
-                      <SideRow label="Fix State">
-                        <Badge colorScheme="green">Fixed</Badge>
-                      </SideRow>
                       {errata.source && (
-                        <SideRow label="Erratum ID (Upstream)">
+                        <SideRow label="Upstream advisory">
                           <Link
                             href={safeHttpUrl(errata.source.url)}
                             isExternal
@@ -690,7 +869,7 @@ export const ShowErrata = () => {
                     </VStack>
                   </Box>
 
-                  {(earliestCvePublished ||
+                  {(cveNames.length > 0 ||
                     errata.publishedAt ||
                     errata.rockyPublishedAt) && (
                     <Box
@@ -706,72 +885,32 @@ export const ShowErrata = () => {
                       <VStack align="stretch" spacing={3}>
                         {cveNames.length > 0 && (
                           <TimelineItem
-                            label="CVE Published"
+                            label="CVE published"
                             date={earliestCvePublished}
                             done={!!earliestCvePublished}
                           />
                         )}
-                        {errata.source && (
+                        {errata.publishedAt && (
                           <TimelineItem
-                            label="Upstream Fix Published"
+                            label={
+                              errata.source
+                                ? "Upstream advisory published"
+                                : "Advisory published"
+                            }
                             date={errata.publishedAt}
-                            done={!!errata.publishedAt}
+                            done
                           />
                         )}
-                        {errata.rockyPublishedAt &&
-                          (!errata.publishedAt ||
-                            new Date(errata.rockyPublishedAt).getTime() >=
-                              new Date(errata.publishedAt).getTime()) && (
-                            <TimelineItem
-                              label="Rocky Erratum Published"
-                              date={errata.rockyPublishedAt}
-                              done={!!errata.rockyPublishedAt}
-                            />
-                          )}
+                        {errata.rockyPublishedAt && (
+                          <TimelineItem
+                            label="Rocky Linux advisory published"
+                            date={errata.rockyPublishedAt}
+                            done
+                          />
+                        )}
                       </VStack>
                     </Box>
                   )}
-
-                  <Box
-                    backgroundColor={sideBg}
-                    borderWidth="1px"
-                    borderColor={borderColor}
-                    borderRadius="md"
-                    p={4}
-                  >
-                    <Text fontSize="sm" fontWeight="semibold" mb={3}>
-                      Additional Details
-                    </Text>
-                    <VStack align="stretch" spacing={3}>
-                      <SideRow label="Reboot Required">
-                        <Text>{errata.rebootSuggested ? "Yes" : "No"}</Text>
-                      </SideRow>
-                      <SideRow label="Restart Required">
-                        <Text>{errata.restartSuggested ? "Yes" : "No"}</Text>
-                      </SideRow>
-                      <SideRow label="Live Patching">
-                        <Text fontSize="xs">Not Available</Text>
-                      </SideRow>
-                      {cveNames.length > 0 && (
-                        <SideRow label="KEV Catalog">
-                          {nvdLoading ? (
-                            "…"
-                          ) : kevListed ? (
-                            <Text as="span" color="orange.400" fontWeight="semibold">
-                              Listed
-                            </Text>
-                          ) : (
-                            "Not Listed"
-                          )}
-                        </SideRow>
-                      )}
-                      <SideRow label="Status in Rocky Linux">
-                        <Badge colorScheme="green" variant="solid">
-                          Fix Available
-                        </Badge>
-                      </SideRow>
-                    </VStack>
-                  </Box>
                 </VStack>
               </Box>
             </Tabs>

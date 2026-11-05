@@ -44,12 +44,15 @@ function InfoGlyph() {
 /** Compact (i) control with in-app explanation popover (no external link). */
 export function MetricInfoHint({
   id,
+  note,
   "aria-label": ariaLabel,
 }: {
   id: MetricHelpId;
+  note?: string;
   "aria-label"?: string;
 }) {
   const help = METRIC_HELP[id];
+  const footnote = note ?? help.note;
   const muted = useColorModeValue("gray.500", "gray.400");
   const bodyMuted = useColorModeValue("gray.600", "gray.300");
 
@@ -87,16 +90,16 @@ export function MetricInfoHint({
           <Text mb={2} color={bodyMuted}>
             {help.summary}
           </Text>
-          <UnorderedList spacing={1.5} pl={1} mb={help.note ? 2 : 0}>
+          <UnorderedList spacing={1.5} pl={1} mb={footnote ? 2 : 0}>
             {help.bullets.map((b) => (
               <ListItem key={b} color={bodyMuted} fontSize="xs">
                 {b}
               </ListItem>
             ))}
           </UnorderedList>
-          {help.note && (
+          {footnote && (
             <Text fontSize="xs" color={muted} fontStyle="italic">
-              {help.note}
+              {footnote}
             </Text>
           )}
         </PopoverBody>

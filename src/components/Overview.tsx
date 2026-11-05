@@ -35,7 +35,7 @@ import {
   useColorModeValue,
 } from "@chakra-ui/react";
 import { useEffect, useState } from "react";
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink, useSearchParams } from "react-router-dom";
 
 import { listAdvisories } from "../api/client";
 import type {
@@ -47,8 +47,21 @@ import { AdvisoryTypeEnum, AdvisorySeverityEnum } from "../api/types";
 import { reqap } from "../lib/reqap";
 import { COLOR_RESF_GREEN } from "../styles";
 import { severityToBadge, severityToText, typeToText } from "./enumToText";
+import { ADVISORY_ID, CVE_ID } from "./tracker/searchRoute";
+
+const RELEASES = ["Rocky Linux 8", "Rocky Linux 9", "Rocky Linux 10"];
+
+function paramDate(value: string | null, endOfDay: boolean): Date | undefined {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const [year, month, date] = value.split("-").map(Number);
+  return endOfDay ? new Date(year, month - 1, date, 23, 59, 59) : new Date(year, month - 1, date);
+}
 
 export const Overview = () => {
+  const [params] = useSearchParams();
+  const initialType = params.get("type");
+  const initialSeverity = params.get("severity");
+  const initialProduct = params.get("product");
   const inputBackground = useColorModeValue("white", undefined);
   const tableBg = useColorModeValue("white", "gray.800");
   const pagerButtonScheme = useColorModeValue("blackAlpha", "gray");
@@ -63,15 +76,33 @@ export const Overview = () => {
 
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
-  const [filtersKeyword, setFiltersKeyword] = useState<string>();
-  const [filterBefore, setFilterBefore] = useState<Date>();
-  const [filterAfter, setFilterAfter] = useState<Date>();
-  const [filterProduct, setFilterProduct] = useState<string>("");
-  const [filtersType, setFiltersType] = useState<AdvisoryTypeFilterKey>();
-  const [filtersSeverity, setFiltersSeverity] =
-    useState<AdvisorySeverityFilterKey>();
+  const [filtersKeyword, setFiltersKeyword] = useState<string | undefined>(
+    params.get("q") || undefined
+  );
+  const [filterBefore, setFilterBefore] = useState<Date | undefined>(() =>
+    paramDate(params.get("before"), true)
+  );
+  const [filterAfter, setFilterAfter] = useState<Date | undefined>(() =>
+    paramDate(params.get("after"), false)
+  );
+  const [filterProduct, setFilterProduct] = useState<string>(
+    initialProduct && RELEASES.includes(initialProduct) ? initialProduct : ""
+  );
+  const [filtersType, setFiltersType] = useState<AdvisoryTypeFilterKey | undefined>(
+    initialType && initialType in AdvisoryTypeEnum
+      ? (initialType as AdvisoryTypeFilterKey)
+      : undefined
+  );
+  const [filtersSeverity, setFiltersSeverity] = useState<
+    AdvisorySeverityFilterKey | undefined
+  >(
+    initialSeverity && initialSeverity in AdvisorySeverityEnum
+      ? (initialSeverity as AdvisorySeverityFilterKey)
+      : undefined
+  );
 
   useEffect(() => {
+    document.title = "Rocky Linux Errata";
     const fetchData = async () => {
       setIsLoading(true);
       const [err, res] = await reqap(() =>
@@ -154,13 +185,17 @@ export const Overview = () => {
           <Input
             type="search"
             aria-label="Keyword search"
-            placeholder="Keyword Search"
+            placeholder="Search advisory, CVE, or package..."
             flexGrow={1}
             width="200px"
             variant="filled"
             borderRadius="0"
             backgroundColor={inputBackground}
-            onChange={(e) => setFiltersKeyword(e.target.value)}
+            value={filtersKeyword ?? ""}
+            onChange={(e) => {
+              setPage(0);
+              setFiltersKeyword(e.target.value || undefined);
+            }}
           />
         </InputGroup>
         <HStack>
@@ -224,8 +259,7 @@ export const Overview = () => {
               value={filterProduct}
               onChange={(e) => setFilterProduct(e.currentTarget.value)}
             >
-              {["Rocky Linux 8", "Rocky Linux 9", "Rocky Linux 10"].map(
-                (s) => (
+              {RELEASES.map((s) => (
                   <option key={s} value={s}>
                     {s}
                   </option>
@@ -286,6 +320,43 @@ export const Overview = () => {
           </FormControl>
         </HStack>
       </Stack>
+      {filtersKeyword?.trim() && (
+        <Text fontSize="sm" mt={2}>
+          <Link
+            as={RouterLink}
+            color={linkBlue}
+            to={
+              CVE_ID.test(filtersKeyword.trim())
+                ? `/cves/${filtersKeyword.trim().toUpperCase()}`
+                : `/cves?q=${encodeURIComponent(filtersKeyword.trim())}`
+            }
+          >
+            {CVE_ID.test(filtersKeyword.trim())
+              ? `Open ${filtersKeyword.trim().toUpperCase()}`
+              : "CVEs"}
+          </Link>
+          {" · "}
+          <Link
+            as={RouterLink}
+            color={linkBlue}
+            to={`/packages?q=${encodeURIComponent(filtersKeyword.trim())}`}
+          >
+            Packages
+          </Link>
+          {ADVISORY_ID.test(filtersKeyword.trim()) && (
+            <>
+              {" · "}
+              <Link
+                as={RouterLink}
+                color={linkBlue}
+                to={`/${filtersKeyword.trim().toUpperCase()}`}
+              >
+                Open {filtersKeyword.trim().toUpperCase()}
+              </Link>
+            </>
+          )}
+        </Text>
+      )}
       <HStack my={4} justifyContent="space-between" flexWrap="wrap">
         <Text fontStyle="italic" fontSize="xs">
           Last updated{" "}
@@ -397,10 +468,17 @@ export const Overview = () => {
                       </Link>
                     </Td>
                     <Td>
-                      {a.synopsis?.replace(
-                        /^(Critical|Important|Moderate|Low): /,
-                        ""
-                      )}
+                      <Link
+                        as={RouterLink}
+                        to={`/${a.name}`}
+                        color={linkBlue}
+                        _visited={{ color: linkPurple }}
+                      >
+                        {a.synopsis?.replace(
+                          /^(Critical|Important|Moderate|Low): /,
+                          ""
+                        )}
+                      </Link>
                     </Td>
                     <Td>
                       {typeToText(a.type)}
