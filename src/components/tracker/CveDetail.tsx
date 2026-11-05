@@ -36,6 +36,7 @@ import { getAdvisory } from "../../api/client";
 import { getTrackerCve, type CveContext, type CveDetail } from "../../api/tracker";
 import type { V2Advisory, V2RPMs } from "../../api/types";
 import { cvssScoreToSeverity, parseCvss3Metrics, parseScore } from "../../lib/nvd";
+import { safeHttpUrl } from "../../lib/safeHttpUrl";
 import { COLOR_RESF_GREEN } from "../../styles";
 import { MetricInfoHint } from "../MetricInfoHint";
 import { ErrataTitleShield } from "../VulnBadges";
@@ -599,15 +600,17 @@ function referenceItems(detail: CveDetail): Array<{ href: string; label: string;
   const nvd = `https://nvd.nist.gov/vuln/detail/${detail.cve}`;
   items.push({ href: nvd, label: `NVD — ${detail.cve}`, external: true });
   seen.add(nvd);
+  // An API document, not an SPA route: it must not go through the router.
   items.push({
     href: `/api/v3/csaf/vex/${encodeURIComponent(detail.cve)}`,
     label: "CSAF VEX",
-    external: false,
+    external: true,
   });
   for (const url of detail.references) {
-    if (seen.has(url) || url === nvd) continue;
-    seen.add(url);
-    items.push({ href: url, label: referenceLabel(url), external: true });
+    const href = safeHttpUrl(url);
+    if (!href || seen.has(href)) continue;
+    seen.add(href);
+    items.push({ href, label: referenceLabel(href), external: true });
   }
   return items;
 }

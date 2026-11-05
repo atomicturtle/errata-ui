@@ -34,6 +34,7 @@ import {
   type FixDetail,
   type FixRow,
 } from "../../api/tracker";
+import { safeHttpUrl } from "../../lib/safeHttpUrl";
 import { COLOR_RESF_GREEN } from "../../styles";
 import { severityColor, TrackerFilters } from "./Filters";
 import { TrackerPager } from "./CveList";
@@ -99,6 +100,8 @@ export function FixesPage() {
       cancelled = true;
     };
   }, [advisory]);
+
+  const csafHref = detail ? safeHttpUrl(detail.csafUrl, window.location.origin) : undefined;
 
   async function copyLink() {
     const url = new URL(window.location.href);
@@ -193,31 +196,36 @@ export function FixesPage() {
                     Open as a page
                   </Button>
                 </HStack>
-                {detail.releases.map((release) => (
-                  <Box key={release.product}>
-                    <Heading size="sm">{release.product}</Heading>
-                    <Text mt={2}>How to fix</Text>
-                    <Code display="block" whiteSpace="pre" p={2}>
-                      {release.updateCommand}
-                    </Code>
-                    {release.ovalUrl && (
-                      <Link href={release.ovalUrl} isExternal>
-                        OVAL
-                      </Link>
-                    )}
-                    <Heading size="xs" mt={3}>
-                      Updated packages
-                    </Heading>
-                    <UnorderedList>
-                      {release.packages.map((pkg) => (
-                        <ListItem key={pkg}>{pkg}</ListItem>
-                      ))}
-                    </UnorderedList>
-                  </Box>
-                ))}
-                <Link href={detail.csafUrl} isExternal>
-                  CSAF
-                </Link>
+                {detail.releases.map((release) => {
+                  const ovalHref = safeHttpUrl(release.ovalUrl, window.location.origin);
+                  return (
+                    <Box key={release.product}>
+                      <Heading size="sm">{release.product}</Heading>
+                      <Text mt={2}>How to fix</Text>
+                      <Code display="block" whiteSpace="pre" p={2}>
+                        {release.updateCommand}
+                      </Code>
+                      {ovalHref && (
+                        <Link href={ovalHref} isExternal>
+                          OVAL
+                        </Link>
+                      )}
+                      <Heading size="xs" mt={3}>
+                        Updated packages
+                      </Heading>
+                      <UnorderedList>
+                        {release.packages.map((pkg) => (
+                          <ListItem key={pkg}>{pkg}</ListItem>
+                        ))}
+                      </UnorderedList>
+                    </Box>
+                  );
+                })}
+                {csafHref && (
+                  <Link href={csafHref} isExternal>
+                    CSAF
+                  </Link>
+                )}
                 <Heading size="sm">Changelog</Heading>
                 <UnorderedList>
                   {detail.changelog.map((line) => (
