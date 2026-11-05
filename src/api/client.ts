@@ -65,15 +65,27 @@ export function getRSSUrl(): string {
   return `${BASE_PATH}/v2/advisories:rss`;
 }
 
-/** Batch-fetch NVD enrichment for CVE IDs already synced into Apollo. */
-export function getNvdCves(ids: string[]): Promise<NvdCveListResponse> {
-  const unique = [...new Set(ids.filter(Boolean))];
-  if (!unique.length) {
-    return Promise.resolve({ items: [], missing: [] });
-  }
+/** Apollo's /api/v3/nvd/cves rejects requests with more IDs than this. */
+const NVD_IDS_PER_REQUEST = 100;
+
+function fetchNvdBatch(ids: string[]): Promise<NvdCveListResponse> {
   const params = new URLSearchParams();
-  params.set("ids", unique.join(","));
+  params.set("ids", ids.join(","));
   return apiFetch<NvdCveListResponse>(
     `${BASE_PATH}/v3/nvd/cves?${params.toString()}`
   );
+}
+
+/** Batch-fetch NVD enrichment for CVE IDs already synced into Apollo. */
+export async function getNvdCves(ids: string[]): Promise<NvdCveListResponse> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  const batches: string[][] = [];
+  for (let start = 0; start < unique.length; start += NVD_IDS_PER_REQUEST) {
+    batches.push(unique.slice(start, start + NVD_IDS_PER_REQUEST));
+  }
+  const responses = await Promise.all(batches.map(fetchNvdBatch));
+  return {
+    items: responses.flatMap((response) => response.items),
+    missing: responses.flatMap((response) => response.missing),
+  };
 }
